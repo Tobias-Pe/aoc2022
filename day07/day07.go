@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -40,8 +41,8 @@ func (directory directory) listContent() string {
 	return names
 }
 
-func newDirectory(parent *directory, name string) *directory {
-	return &directory{
+func newDirectory(parent *directory, name string) directory {
+	return directory{
 		parent:  parent,
 		name:    name,
 		content: []data{},
@@ -66,11 +67,11 @@ func readFile() {
 		fmt.Printf("Error on reading file: %s", err.Error())
 	}
 	lines := string(content)
-	topLevel = newDirectory(topLevel, "/")
-	currentDir := topLevel
-	for _, line := range strings.Split(lines, "\n") {
+	topLevel = newDirectory(&topLevel, "/")
+	currentDir := &topLevel
+	for _, line := range strings.Split(strings.ReplaceAll(lines, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(line, "$ cd") {
-			targetForDir := strings.TrimLeft(line, "$ cd")
+			targetForDir := strings.TrimPrefix(line, "$ cd ")
 			currentDir = changeDirectory(currentDir, targetForDir)
 		} else if !strings.HasPrefix(line, "$") && len(line) > 1 {
 			args := strings.Split(line, " ")
@@ -81,7 +82,8 @@ func readFile() {
 
 func populateDirectory(current *directory, argument string, name string) {
 	if argument == "dir" {
-		current.content = append(current.content, newDirectory(current, name))
+		newDir := newDirectory(current, name)
+		current.content = append(current.content, &newDir)
 	} else {
 		convertedSize, err := strconv.Atoi(argument)
 		if err != nil {
@@ -98,39 +100,78 @@ func populateDirectory(current *directory, argument string, name string) {
 func changeDirectory(current *directory, target string) *directory {
 	switch target {
 	case "/":
-        return topLevel
+		return &topLevel
 	case "..":
-        return current.parent
+		return current.parent
 	default:
 		for _, data := range current.content {
-			if directory, isDirectory := data.(*directory); isDirectory {
-                return directory
+			if directory, isDirectory := data.(*directory); isDirectory && target == directory.name {
+				return directory
 			}
 		}
-    }
-    fmt.Println("No Directory ", target, " found :(")
-    return nil
+		fmt.Println("No Directory ", target, " found :(")
+	}
+	return nil
 }
 
-func sumDirectoriesSizeWithAtMost(dir *directory, max int) int {
-	sum := dir.getSize()
-    if sum < max {
-        fmt.Println(dir.name,sum)
-		return sum
-	}
-	sum = 0
+func calcSumDirectoriesSizeWithAtMost100000() int {
+	var sumOfAllDirectories = 0
+	sumDirectoriesSizeWithAtMost(&topLevel, 100000, &sumOfAllDirectories)
+	return sumOfAllDirectories
+}
+
+func sumDirectoriesSizeWithAtMost(dir *directory, max int, sumOfAllDirectories *int) int {
+	sum := 0
 	for _, data := range dir.content {
 		if directory, isDirectory := data.(*directory); isDirectory {
-            sum += sumDirectoriesSizeWithAtMost(directory, max)
-            fmt.Println(dir.name,sum)
+			sum += sumDirectoriesSizeWithAtMost(directory, max, sumOfAllDirectories)
+		} else {
+			sum += data.getSize()
 		}
 	}
-	return 0
+	if sum <= max {
+		*sumOfAllDirectories += sum
+
+	}
+	return sum
 }
 
-var topLevel *directory
+type pair struct {
+	name string
+	size int
+}
+
+func calcSizeOfAllDirs() []pair {
+	var sizes []pair
+	fmt.Println("Toplevel size: ", getSizeOfAllChildDirs(&topLevel, &sizes))
+	return sizes
+}
+
+func getSizeOfAllChildDirs(dir *directory, sizes *[]pair) int {
+	sum := 0
+	for _, data := range dir.content {
+		if directory, isDirectory := data.(*directory); isDirectory {
+			sum += getSizeOfAllChildDirs(directory, sizes)
+		} else {
+			sum += data.getSize()
+		}
+	}
+	*sizes = append(*sizes, pair{
+		name: dir.name,
+		size: sum,
+	})
+
+	return sum
+}
+
+var topLevel directory
 
 func main() {
 	readFile()
-	fmt.Println("Part01: ", sumDirectoriesSizeWithAtMost(topLevel, 100000))
+	fmt.Println("Part01: ", calcSumDirectoriesSizeWithAtMost100000())
+	sizesOfAllDirs := calcSizeOfAllDirs()
+	sort.Slice(sizesOfAllDirs, func(i, j int) bool {
+		return sizesOfAllDirs[i].size > sizesOfAllDirs[j].size
+	})
+	fmt.Println(sizesOfAllDirs)
 }
